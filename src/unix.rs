@@ -35,10 +35,6 @@ impl Args {
             .into()
     }
 
-    pub fn is_sole_arg(&self) -> bool {
-        self.argv.len() == self.start + 1
-    }
-
     pub fn skip_first(&mut self) {
         // No-op on an empty tail, in lockstep with the Windows implementation.
         if self.start < self.argv.len() {

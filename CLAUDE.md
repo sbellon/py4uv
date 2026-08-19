@@ -35,8 +35,8 @@ Windows (and `src/win.rs` on Unix). Lint the other side with
   shim, so signals and exit codes need no forwarding.
 
 Both platform modules expose the same interface (`Args::from_env`,
-`first_as_str`, `first_as_path`, `is_sole_arg`, `skip_first`, `append_to`,
-`uv_command`, `run`); keep them in lockstep when extending it.
+`first_as_str`, `first_as_path`, `skip_first`, `append_to`, `uv_command`,
+`run`); keep them in lockstep when extending it.
 
 ## Invariants
 
@@ -54,7 +54,10 @@ Both platform modules expose the same interface (`Args::from_env`,
   argument is ever treated as a script for shebang purposes.
 - Deliberate divergences (keep them, documented in README.md): arch suffixes
   accepted but ignored, `py -h` shows Python's help, no PEP 723 handling,
-  `PYLAUNCHER_*` environment variables ignored.
+  `PYLAUNCHER_*` environment variables ignored, shebangs only ever select
+  uv-managed interpreters (no venv/absolute-path execution, no env PATH
+  search, UTF-8 only), and version requests the shim doesn't recognize are
+  passed to `uv run -p` verbatim.
 
 ## Verifying end to end
 

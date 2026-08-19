@@ -29,13 +29,35 @@ pub struct Args {
     line: Vec<u16>,
     /// The not-yet-consumed tail starts here.
     start: usize,
+    /// The tail's first token, CRT-decoded once for all accessors.
+    first: Vec<u16>,
+    /// Tail offset just past the first token and its trailing whitespace.
+    first_end: usize,
 }
 
 impl Args {
     pub fn from_env() -> Self {
         let line = raw_command_line();
         let start = end_of_argv0(&line);
-        Args { line, start }
+        Self::new(line, start)
+    }
+
+    fn new(line: Vec<u16>, start: usize) -> Self {
+        let mut args = Args {
+            line,
+            start,
+            first: Vec::new(),
+            first_end: 0,
+        };
+        args.decode_first();
+        args
+    }
+
+    fn decode_first(&mut self) {
+        let tail = &self.line[self.start..];
+        let (arg, end) = decode_next_arg(tail);
+        self.first_end = skip_ws(tail, end);
+        self.first = arg;
     }
 
     fn tail(&self) -> &[u16] {
@@ -43,23 +65,16 @@ impl Args {
     }
 
     pub fn first_as_str(&self) -> String {
-        String::from_utf16_lossy(&decode_next_arg(self.tail()).0)
+        String::from_utf16_lossy(&self.first)
     }
 
     pub fn first_as_path(&self) -> PathBuf {
-        PathBuf::from(OsString::from_wide(&decode_next_arg(self.tail()).0))
-    }
-
-    pub fn is_sole_arg(&self) -> bool {
-        let tail = self.tail();
-        let (_, end) = decode_next_arg(tail);
-        skip_ws(tail, end) == tail.len()
+        PathBuf::from(OsString::from_wide(&self.first))
     }
 
     pub fn skip_first(&mut self) {
-        let tail = self.tail();
-        let (_, end) = decode_next_arg(tail);
-        self.start += skip_ws(tail, end);
+        self.start += self.first_end;
+        self.decode_first();
     }
 
     pub fn append_to(&self, cmd: &mut Command) {
@@ -104,26 +119,20 @@ fn skip_ws(line: &[u16], mut i: usize) -> usize {
     i
 }
 
-/// Index just past `argv[0]` and the whitespace following it. Like the CRT,
-/// argv[0] follows simpler rules than the other arguments: no escapes, and a
-/// leading quote runs to the next quote.
+/// Index just past `argv[0]` and the whitespace following it. Like the CRT
+/// (and Rust's std), the program name follows simpler rules than the other
+/// arguments: backslashes are literal, a quote anywhere toggles quoted mode,
+/// and the token ends at the first unquoted space or tab.
 fn end_of_argv0(line: &[u16]) -> usize {
-    let n = line.len();
-    let mut i = 0;
-    if line.first() == Some(&QUOTE) {
-        i = 1;
-        while i < n && line[i] != QUOTE {
-            i += 1;
-        }
-        if i < n {
-            i += 1;
-        }
-    } else {
-        while i < n && line[i] != SPACE && line[i] != TAB {
-            i += 1;
+    let mut in_quotes = false;
+    for (i, &unit) in line.iter().enumerate() {
+        match unit {
+            QUOTE => in_quotes = !in_quotes,
+            SPACE | TAB if !in_quotes => return skip_ws(line, i),
+            _ => {}
         }
     }
-    skip_ws(line, i)
+    line.len()
 }
 
 /// Decode the first argument in `s` exactly as the post-2008 CRT (and Rust's
@@ -227,19 +236,18 @@ mod tests {
         assert_eq!(end_of_argv0(&wide("py -3")), 3);
         assert_eq!(end_of_argv0(&wide(r#""C:\tools\py.exe"  -3"#)), 19);
         assert_eq!(end_of_argv0(&wide("py")), 2);
+        // A quote toggles quoted mode anywhere in argv[0], not only leading.
+        assert_eq!(end_of_argv0(&wide(r#"C:\Program" "Files\py.exe -3"#)), 26);
 
-        let mut args = Args {
-            line: wide(r#"py ""-3.12"" script.py"#),
-            start: 3,
-        };
+        let mut args = Args::new(wide(r#"py ""-3.12"" script.py"#), 3);
         assert_eq!(args.first_as_str(), "-3.12");
-        assert!(!args.is_sole_arg());
         args.skip_first();
         assert_eq!(String::from_utf16(args.tail()).unwrap(), "script.py");
-        assert!(args.is_sole_arg());
+        assert_eq!(args.first_as_str(), "script.py");
         args.skip_first();
         assert!(args.tail().is_empty());
         args.skip_first(); // no-op on an empty tail
         assert!(args.tail().is_empty());
+        assert_eq!(args.first_as_str(), "");
     }
 }
