@@ -28,17 +28,29 @@ in place of the shim, so signals and exit codes need no forwarding at all.
 Version resolution order mirrors the real py launcher:
 
 1. explicit flag (`-3`, `-3.12`, `-3.12-64`, `-V:3.12`)
-2. shebang line of the script given as first argument (`#!/usr/bin/env python3.10`)
+2. shebang line of the script given as first argument
+   (`#!/usr/bin/env python3.10`); interpreter options trailing it
+   (`#!/usr/bin/python3 -u`) are passed on to python
 3. `PY_PYTHON` environment variable
 4. uv's default (`UV_PYTHON` / `.python-version` / latest managed install)
 
-`py -0` / `-0p` / `--list` map to `uv python list --only-installed`.
+A bare major version from any of these (`py -3`, `#!/usr/bin/python3`,
+`PY_PYTHON=3`) is refined through `PY_PYTHON3`/`PY_PYTHON2`, like the real
+launcher.
+
+`py -0` / `-0p` / `--list` as the sole argument map to
+`uv python list --only-installed` (with further arguments they go to python,
+like the real launcher).
 
 Deliberate divergences from the real launcher: architecture suffixes
 (`-32`/`-64`/`-arm64`) are accepted but ignored, `py -h` shows Python's help
-rather than launcher help, and `py script.py` runs the script with plain
+rather than launcher help, `py script.py` runs the script with plain
 `python` (no PEP 723 inline-dependency handling — use `uv run script.py` for
-that).
+that), and the `PYLAUNCHER_*` environment variables (`PYLAUNCHER_DRYRUN`,
+`PYLAUNCHER_DEBUG`, `PYLAUNCHER_ALLOW_INSTALL`, …) are ignored. On Windows,
+uv must be a real `uv.exe` — found on `PATH`, or failing that next to
+`py.exe` — since a `.cmd`/`.bat` shim would have cmd.exe re-parse the
+verbatim argument tail.
 
 ## Checks
 

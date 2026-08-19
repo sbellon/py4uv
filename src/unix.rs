@@ -35,13 +35,25 @@ impl Args {
             .into()
     }
 
+    pub fn is_sole_arg(&self) -> bool {
+        self.argv.len() == self.start + 1
+    }
+
     pub fn skip_first(&mut self) {
-        self.start += 1;
+        // No-op on an empty tail, in lockstep with the Windows implementation.
+        if self.start < self.argv.len() {
+            self.start += 1;
+        }
     }
 
     pub fn append_to(&self, cmd: &mut Command) {
         cmd.args(&self.argv[self.start..]);
     }
+}
+
+/// uv is found via PATH by `exec` (execvp semantics); nothing to resolve here.
+pub fn uv_command() -> Command {
+    Command::new("uv")
 }
 
 pub fn run(cmd: &mut Command) -> ! {

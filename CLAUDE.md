@@ -35,8 +35,8 @@ Windows (and `src/win.rs` on Unix). Lint the other side with
   shim, so signals and exit codes need no forwarding.
 
 Both platform modules expose the same interface (`Args::from_env`,
-`first_as_str`, `first_as_path`, `skip_first`, `append_to`, `run`); keep them
-in lockstep when extending it.
+`first_as_str`, `first_as_path`, `is_sole_arg`, `skip_first`, `append_to`,
+`uv_command`, `run`); keep them in lockstep when extending it.
 
 ## Invariants
 
@@ -44,12 +44,17 @@ in lockstep when extending it.
   hand. Don't add crates for convenience.
 - On Windows, never re-parse or re-quote the argument tail. Verbatim
   pass-through of `!`, `%`, `^`, and quotes is the core feature (its absence
-  was the fatal flaw of the batch-file predecessor).
+  was the fatal flaw of the batch-file predecessor). Decoding the tail's
+  first token for classification is fine, but must follow the post-2008 CRT
+  rules (`decode_next_arg` in win.rs) so classification and what the child
+  sees never disagree.
 - Mirror the real py launcher: version resolution is explicit flag > shebang >
-  `PY_PYTHON` > uv default, and only the first argument is ever treated as a
-  script for shebang purposes.
+  `PY_PYTHON` > uv default (bare majors refined via `PY_PYTHON2`/`PY_PYTHON3`),
+  shebang interpreter options are forwarded to python, and only the first
+  argument is ever treated as a script for shebang purposes.
 - Deliberate divergences (keep them, documented in README.md): arch suffixes
-  accepted but ignored, `py -h` shows Python's help, no PEP 723 handling.
+  accepted but ignored, `py -h` shows Python's help, no PEP 723 handling,
+  `PYLAUNCHER_*` environment variables ignored.
 
 ## Verifying end to end
 
