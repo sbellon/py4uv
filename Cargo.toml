@@ -1,0 +1,19 @@
+[package]
+name = "py4uv"
+version = "0.1.0"
+edition = "2024"
+description = "Portable `py` launcher shim, backed by uv (no Python installation needed)"
+license = "MIT"
+
+[[bin]]
+name = "py"
+path = "src/main.rs"
+
+[dependencies]
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+
+[profile.release]
+strip = true
+lto = true

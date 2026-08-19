@@ -1,0 +1,25 @@
+#!/bin/sh
+# The typical Rust check flow, gating every commit.
+# Enable with: git config core.hooksPath .githooks
+set -e
+
+run() {
+    echo "pre-commit: $*"
+    "$@"
+}
+
+run cargo fmt --check
+run cargo check --all-targets --all-features --quiet
+run cargo clippy --all-targets --all-features --quiet -- -D warnings
+run cargo test --all-features --quiet
+run env RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --all-features --quiet
+
+# Also lint the other platform's module via an installed cross target
+# (unix.rs is invisible to clippy on Windows and vice versa).
+host=$(rustc -vV | sed -n 's/^host: //p')
+for target in x86_64-unknown-linux-musl x86_64-pc-windows-msvc; do
+    [ "$target" = "$host" ] && continue
+    if rustup target list --installed 2>/dev/null | grep -qx "$target"; then
+        run cargo clippy --all-targets --all-features --quiet --target "$target" -- -D warnings
+    fi
+done
