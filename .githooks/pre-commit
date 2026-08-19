@@ -11,10 +11,35 @@ run() {
 # Check the staged snapshot, not the working tree: with partially staged
 # files the two differ, and only the index becomes the commit.
 repo=$(git rev-parse --show-toplevel)
-snapshot=$(mktemp -d)
+# The snapshot lives at a fixed path so cargo's path- and mtime-keyed
+# fingerprints can match across runs (a fresh mktemp dir forces a full
+# rebuild every commit), and inside the repo so a rustup override and any
+# untracked rustfmt.toml / .cargo/config.toml still apply to it.
+snapshot="$repo/target/pre-commit-src"
+stage=$(mktemp -d)
 # cd back out first: Windows cannot delete the current working directory.
-trap 'cd "$repo" && rm -rf "$snapshot" || :' EXIT INT HUP TERM
-git checkout-index --prefix="$snapshot/" -a
+# The signal traps must exit themselves — a cleanup-only trap would let the
+# script resume and check the working tree instead of the snapshot.
+cleanup() { cd "$repo" && rm -rf "$stage" || :; }
+trap cleanup EXIT
+trap 'cleanup; trap - EXIT; exit 129' HUP
+trap 'cleanup; trap - EXIT; exit 130' INT
+trap 'cleanup; trap - EXIT; exit 143' TERM
+
+git checkout-index --prefix="$stage/" -a
+# Sync the fresh checkout into the snapshot, keeping unchanged files'
+# mtimes so cargo rebuilds stay incremental; drop files that left the index.
+mkdir -p "$snapshot"
+(cd "$snapshot" && find . -type f) | while IFS= read -r f; do
+    [ -f "$stage/$f" ] || rm -f "$snapshot/$f"
+done
+(cd "$stage" && find . -type f) | while IFS= read -r f; do
+    if ! cmp -s "$stage/$f" "$snapshot/$f" 2>/dev/null; then
+        mkdir -p "$snapshot/$(dirname "$f")"
+        cp "$stage/$f" "$snapshot/$f"
+    fi
+done
+
 # Reuse a build cache across runs, separate from the dev target dir.
 CARGO_TARGET_DIR="$repo/target/pre-commit"
 export CARGO_TARGET_DIR
@@ -28,18 +53,24 @@ run env RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --all-features --quiet
 
 # Also lint the other platform's module via a cross target (unix.rs is
 # invisible to every native check on Windows and vice versa; cargo clippy
-# doesn't link, so no cross toolchain is needed). Skipping this silently
-# would let cross-platform breakage land, so a missing target fails the
-# commit instead.
+# doesn't link, so no cross toolchain is needed). The opposite-platform
+# target is mandatory — skipping it silently would let cross-platform
+# breakage land — and any other installed non-host target is linted too.
 host=$(rustc -vV | sed -n 's/^host: //p')
 case "$host" in
-    *-windows-*) cross=x86_64-unknown-linux-musl ;;
-    *) cross=x86_64-pc-windows-msvc ;;
+    *-windows-*) required=x86_64-unknown-linux-musl ;;
+    *) required=x86_64-pc-windows-msvc ;;
 esac
-if ! rustup target list --installed 2>/dev/null | grep -qx "$cross"; then
-    echo "pre-commit: cross target $cross is not installed, so the other" >&2
-    echo "pre-commit: platform's module cannot be linted; fix with:" >&2
-    echo "pre-commit:     rustup target add $cross" >&2
-    exit 1
-fi
-run cargo clippy --all-targets --all-features --quiet --target "$cross" -- -D warnings
+for cross in x86_64-unknown-linux-musl x86_64-pc-windows-msvc; do
+    [ "$cross" = "$host" ] && continue
+    if rustup target list --installed 2>/dev/null | grep -qx "$cross"; then
+        run cargo clippy --all-targets --all-features --quiet --target "$cross" -- -D warnings
+    elif [ "$cross" = "$required" ]; then
+        echo "pre-commit: cross target $cross is not installed, so the other" >&2
+        echo "pre-commit: platform's module cannot be linted; fix with:" >&2
+        echo "pre-commit:     rustup target add $cross" >&2
+        exit 1
+    else
+        echo "pre-commit: note: cross target $cross not installed; skipping" >&2
+    fi
+done

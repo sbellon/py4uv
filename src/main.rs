@@ -14,11 +14,13 @@
 //   explicit flag > script shebang > PY_PYTHON env var > uv default
 //   (uv default = UV_PYTHON / .python-version / latest managed install),
 // and a bare major version from any of those is refined via
-// PY_PYTHON2/PY_PYTHON3. Interpreter options trailing a python shebang
+// PY_PYTHON2/PY_PYTHON3 — except from a -V: tag, which the real launcher
+// treats as exact. Interpreter options trailing a python shebang
 // ("#!/usr/bin/python3 -u") are passed to python, like the real launcher.
 //
-// py -0 / -0p / --list as the sole argument map to
-// `uv python list --only-installed`.
+// py -0 / -0p / --list / --list-paths as the first argument map to
+// `uv python list --only-installed`; further arguments are ignored, like
+// the real launcher.
 
 #[cfg(windows)]
 #[path = "win.rs"]
@@ -36,15 +38,17 @@ fn main() {
     let mut args = platform::Args::from_env();
 
     let first = args.first_as_str();
-    // Like the real launcher, list flags only count when they are the sole
-    // argument; otherwise they go to python like any other option.
-    if args.is_sole_arg() && matches!(first.as_str(), "-0" | "-0p" | "--list" | "--list-paths") {
+    // Like the real launcher, a list flag is recognized as the first
+    // argument; it lists and exits, and further arguments are ignored.
+    if matches!(first.as_str(), "-0" | "-0p" | "--list" | "--list-paths") {
         let mut cmd = platform::uv_command();
         cmd.args(["python", "list", "--only-installed"]);
         platform::run(&mut cmd);
     }
 
     let mut version = parse_version_flag(&first);
+    // The real launcher treats a -V: tag as exact and never refines it.
+    let exact_tag = version.is_some() && first.starts_with("-V:");
     let mut python_opts = Vec::new();
     if version.is_some() {
         args.skip_first();
@@ -55,13 +59,15 @@ fn main() {
             python_opts = shebang.options;
         }
     }
-    let mut version = version.or_else(|| env_version("PY_PYTHON"));
+    version = version.or_else(|| env_version("PY_PYTHON"));
     // A bare major version (from flag, shebang, or PY_PYTHON) is refined via
     // PY_PYTHON2/PY_PYTHON3, like the real launcher.
-    if version.as_deref() == Some("2") {
-        version = env_version("PY_PYTHON2").or(version);
-    } else if version.as_deref() == Some("3") {
-        version = env_version("PY_PYTHON3").or(version);
+    if !exact_tag {
+        if version.as_deref() == Some("2") {
+            version = env_version("PY_PYTHON2").or(version);
+        } else if version.as_deref() == Some("3") {
+            version = env_version("PY_PYTHON3").or(version);
+        }
     }
 
     let mut cmd = platform::uv_command();
@@ -76,12 +82,12 @@ fn main() {
     platform::run(&mut cmd);
 }
 
-/// Matches -2, -3, -3.12 and -V:3.12 / -V:Company/3.12, each optionally with
-/// a -32/-64/-arm64 suffix (accepted but ignored, in any case), returning the
-/// version to pass to `uv run -p`.
+/// Matches -2, -3, -3.12 and `-V:` requests (`-V:3.12`, `-V:PyPy/3.10`,
+/// `-V:3.13t`), the former optionally with a -32/-64/-arm64 suffix (accepted
+/// but ignored, in any case), returning the request to pass to `uv run -p`.
 fn parse_version_flag(tok: &str) -> Option<String> {
     if let Some(rest) = tok.strip_prefix("-V:") {
-        return normalize_version_tag(rest);
+        return resolve_version_request(rest);
     }
     let body = tok.strip_prefix('-')?;
     let body = strip_arch_suffix(body);
@@ -97,27 +103,44 @@ fn parse_version_flag(tok: &str) -> Option<String> {
     ok.then(|| body.to_string())
 }
 
-/// A `-V:` or `PY_PYTHON` style tag — "3.12", "3.12-64", "Company/3.12" —
-/// normalized to the version for `uv run -p`; None if it isn't a version.
-fn normalize_version_tag(tag: &str) -> Option<String> {
-    let ver = tag.rsplit(['/', '\\']).next().unwrap();
-    let ver = strip_arch_suffix(ver);
-    is_dotted_number(ver).then(|| ver.to_string())
+/// A `-V:` or `PY_PYTHON*` version request, resolved to a `uv run -p`
+/// argument. Dotted versions (with an ignored arch suffix) pass through;
+/// `Company/version` tags map to uv's `implementation@version` form, with
+/// `PythonCore` meaning plain `CPython` (an unknown company then fails
+/// loudly in uv instead of silently running the wrong one). Anything else
+/// the shim does not understand is handed to uv verbatim, so uv-native
+/// requests ("3.13t", "pypy3.10", an interpreter path) keep working. Empty
+/// requests and requests starting with `-`, which could derail uv's flag
+/// parsing, yield None.
+fn resolve_version_request(tag: &str) -> Option<String> {
+    if tag.is_empty() || tag.starts_with('-') {
+        return None;
+    }
+    let ver = strip_arch_suffix(tag);
+    if is_dotted_number(ver) {
+        return Some(ver.to_string());
+    }
+    if let Some((company, ver)) = tag.rsplit_once(['/', '\\']) {
+        let ver = strip_arch_suffix(ver);
+        if is_dotted_number(ver) {
+            return Some(if company.eq_ignore_ascii_case("PythonCore") {
+                ver.to_string()
+            } else {
+                let company = company.to_ascii_lowercase();
+                format!("{company}@{ver}")
+            });
+        }
+    }
+    Some(tag.to_string())
 }
 
 /// Strip one -32/-64/-arm64 architecture suffix, case-insensitively. Arch
 /// selection is accepted but ignored (uv manages one build per version).
 fn strip_arch_suffix(s: &str) -> &str {
-    let bytes = s.as_bytes();
-    for suffix in [b"-32".as_slice(), b"-64", b"-arm64"] {
-        if bytes.len() >= suffix.len()
-            && bytes[bytes.len() - suffix.len()..].eq_ignore_ascii_case(suffix)
-        {
-            // The suffix is pure ASCII, so the cut is a char boundary.
-            return &s[..s.len() - suffix.len()];
-        }
-    }
-    s
+    ["-32", "-64", "-arm64"]
+        .iter()
+        .find_map(|suffix| strip_suffix_ignore_case(s, suffix))
+        .unwrap_or(s)
 }
 
 fn is_dotted_number(s: &str) -> bool {
@@ -126,16 +149,21 @@ fn is_dotted_number(s: &str) -> bool {
             .all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()))
 }
 
-/// Version from an environment variable, normalized like a -V: tag. A set but
-/// unusable value aborts: passed through it would derail uv's own flag
-/// parsing, and ignored it would silently run the wrong interpreter.
+/// Version request from an environment variable, resolved like a -V: tag. A
+/// set but unusable value (non-Unicode, or starting with `-`) aborts: passed
+/// through it could derail uv's own flag parsing, and ignored it would
+/// silently run the wrong interpreter.
 fn env_version(var: &str) -> Option<String> {
-    let val = std::env::var(var).ok()?;
+    let val = std::env::var_os(var)?;
     if val.is_empty() {
         return None;
     }
-    normalize_version_tag(&val).or_else(|| {
-        eprintln!("py: {var}={val} is not a version like 3 or 3.12");
+    let Some(val) = val.to_str() else {
+        eprintln!("py: {var} is set but is not valid Unicode");
+        std::process::exit(103);
+    };
+    resolve_version_request(val).or_else(|| {
+        eprintln!("py: {var}={val} is not a usable version request");
         std::process::exit(103);
     })
 }
@@ -151,33 +179,36 @@ struct Shebang {
 /// Read and parse the script's shebang line. Unreadable or not a file: fall
 /// through and let python report the error.
 fn script_shebang(path: &Path) -> Option<Shebang> {
-    // Generous cap for one line; a line still unterminated at the cap is
-    // ignored rather than misparsed at the cut.
+    // Generous cap for one line; a line still unterminated past the cap is
+    // ignored rather than misparsed at the cut. Reading one byte beyond the
+    // cap distinguishes that from a complete line ending exactly at it.
     const CAP: usize = 4096;
     let file = std::fs::File::open(path).ok()?;
     let mut buf = Vec::new();
-    std::io::BufReader::new(file.take(CAP as u64))
+    std::io::BufReader::new(file.take(CAP as u64 + 1))
         .read_until(b'\n', &mut buf)
         .ok()?;
-    if buf.len() == CAP && buf.last() != Some(&b'\n') {
+    if buf.len() > CAP {
         return None;
     }
     let head = buf.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(&buf);
-    parse_shebang(String::from_utf8_lossy(head).trim_end())
+    // Strict UTF-8: a mis-encoded line is ignored rather than parsed with
+    // mangled bytes (no ANSI-code-page fallback, see README).
+    parse_shebang(std::str::from_utf8(head).ok()?.trim_end())
 }
 
 /// Parse a `#!` line. Recognized when the interpreter's basename is
-/// `python[X[.Y]]` — optionally via `env`, with an `.exe` extension, or with
-/// an ignored arch suffix; anything else yields None.
+/// `python[X[.Y]]` in any case — optionally via `env`, with an `.exe`
+/// extension, or with an ignored arch suffix; anything else yields None.
 fn parse_shebang(line: &str) -> Option<Shebang> {
     let rest = line.strip_prefix("#!")?;
-    let mut tokens = rest.split_whitespace();
+    let mut tokens = shebang_tokens(rest);
     let mut interpreter = tokens.next()?;
-    if trim_exe(basename(interpreter)).eq_ignore_ascii_case("env") {
+    if trim_exe(basename(&interpreter)).eq_ignore_ascii_case("env") {
         interpreter = tokens.next()?;
     }
-    let name = trim_exe(basename(interpreter));
-    let tag = strip_arch_suffix(name.strip_prefix("python")?);
+    let name = trim_exe(basename(&interpreter));
+    let tag = strip_arch_suffix(strip_prefix_ignore_case(name, "python")?);
     let version = if tag.is_empty() {
         None
     } else if is_dotted_number(tag) {
@@ -187,7 +218,31 @@ fn parse_shebang(line: &str) -> Option<Shebang> {
     };
     Some(Shebang {
         version,
-        options: tokens.map(str::to_string).collect(),
+        options: tokens.collect(),
+    })
+}
+
+/// Whitespace-separated tokens, except that double quotes group and are
+/// stripped (`-W "a b"` is the two tokens `-W` and `a b`), so quoted
+/// interpreter paths and option arguments with spaces survive.
+fn shebang_tokens(s: &str) -> impl Iterator<Item = String> {
+    let mut chars = s.chars().peekable();
+    std::iter::from_fn(move || {
+        while chars.next_if(|c| c.is_whitespace()).is_some() {}
+        chars.peek()?;
+        let mut token = String::new();
+        let mut in_quotes = false;
+        while let Some(&c) = chars.peek() {
+            if c == '"' {
+                in_quotes = !in_quotes;
+            } else if c.is_whitespace() && !in_quotes {
+                break;
+            } else {
+                token.push(c);
+            }
+            chars.next();
+        }
+        Some(token)
     })
 }
 
@@ -196,11 +251,34 @@ fn basename(path: &str) -> &str {
 }
 
 fn trim_exe(name: &str) -> &str {
-    let bytes = name.as_bytes();
-    if bytes.len() > 4 && bytes[bytes.len() - 4..].eq_ignore_ascii_case(b".exe") {
-        &name[..name.len() - 4]
+    // A name that is nothing but ".exe" is kept as-is.
+    match strip_suffix_ignore_case(name, ".exe") {
+        Some(stem) if !stem.is_empty() => stem,
+        _ => name,
+    }
+}
+
+/// `strip_prefix` up to ASCII case. The prefix must be ASCII, so the cut is
+/// a char boundary.
+fn strip_prefix_ignore_case<'a>(s: &'a str, prefix: &str) -> Option<&'a str> {
+    if s.len() >= prefix.len()
+        && s.as_bytes()[..prefix.len()].eq_ignore_ascii_case(prefix.as_bytes())
+    {
+        Some(&s[prefix.len()..])
     } else {
-        name
+        None
+    }
+}
+
+/// `strip_suffix` up to ASCII case. The suffix must be ASCII, so the cut is
+/// a char boundary.
+fn strip_suffix_ignore_case<'a>(s: &'a str, suffix: &str) -> Option<&'a str> {
+    if s.len() >= suffix.len()
+        && s.as_bytes()[s.len() - suffix.len()..].eq_ignore_ascii_case(suffix.as_bytes())
+    {
+        Some(&s[..s.len() - suffix.len()])
+    } else {
+        None
     }
 }
 
@@ -221,9 +299,19 @@ mod tests {
         assert_eq!(parse_version_flag("-V:3.12"), Some("3.12".into()));
         assert_eq!(parse_version_flag("-V:3.12-64"), Some("3.12".into()));
         assert_eq!(parse_version_flag("-V:3.13-arm64"), Some("3.13".into()));
-        assert_eq!(parse_version_flag("-V:Astral/3.13"), Some("3.13".into()));
-        assert_eq!(parse_version_flag("-V:Astral/3.13-64"), Some("3.13".into()));
         assert_eq!(parse_version_flag("-V:3.13.2"), Some("3.13.2".into()));
+        assert_eq!(
+            parse_version_flag("-V:PythonCore/3.12"),
+            Some("3.12".into())
+        );
+        assert_eq!(parse_version_flag("-V:PyPy/3.10"), Some("pypy@3.10".into()));
+        assert_eq!(
+            parse_version_flag("-V:Astral/3.13-64"),
+            Some("astral@3.13".into())
+        );
+        // Requests the shim doesn't understand go to uv verbatim.
+        assert_eq!(parse_version_flag("-V:3.13t"), Some("3.13t".into()));
+        assert_eq!(parse_version_flag("-V:pypy3.10"), Some("pypy3.10".into()));
     }
 
     #[test]
@@ -238,22 +326,47 @@ mod tests {
         assert_eq!(parse_version_flag("-m"), None);
         assert_eq!(parse_version_flag("-V"), None);
         assert_eq!(parse_version_flag("-V:"), None);
-        assert_eq!(parse_version_flag("-V:Astral/"), None);
+        assert_eq!(parse_version_flag("-V:-u"), None);
         assert_eq!(parse_version_flag("script.py"), None);
     }
 
     #[test]
-    fn version_tags() {
-        assert_eq!(normalize_version_tag("3.12"), Some("3.12".into()));
-        assert_eq!(normalize_version_tag("3.12-64"), Some("3.12".into()));
-        assert_eq!(normalize_version_tag("3.12-ARM64"), Some("3.12".into()));
+    fn version_requests() {
+        assert_eq!(resolve_version_request("3.12"), Some("3.12".into()));
+        assert_eq!(resolve_version_request("3.12-64"), Some("3.12".into()));
+        assert_eq!(resolve_version_request("3.12-ARM64"), Some("3.12".into()));
         assert_eq!(
-            normalize_version_tag("Astral/3.13-arm64"),
-            Some("3.13".into())
+            resolve_version_request("PythonCore/3.12"),
+            Some("3.12".into())
         );
-        assert_eq!(normalize_version_tag("foo"), None);
-        assert_eq!(normalize_version_tag(""), None);
-        assert_eq!(normalize_version_tag("-64"), None);
+        assert_eq!(
+            resolve_version_request(r"pythoncore\3.12-64"),
+            Some("3.12".into())
+        );
+        assert_eq!(
+            resolve_version_request("PyPy/3.10"),
+            Some("pypy@3.10".into())
+        );
+        assert_eq!(
+            resolve_version_request("Astral/3.13-arm64"),
+            Some("astral@3.13".into())
+        );
+        // Anything else is uv's to resolve (free-threaded and pre-release
+        // versions, implementation names, interpreter paths, ...).
+        assert_eq!(resolve_version_request("3.13t"), Some("3.13t".into()));
+        assert_eq!(
+            resolve_version_request("3.14.0rc1"),
+            Some("3.14.0rc1".into())
+        );
+        assert_eq!(resolve_version_request("pypy3.10"), Some("pypy3.10".into()));
+        assert_eq!(
+            resolve_version_request(r"C:\Python312\python.exe"),
+            Some(r"C:\Python312\python.exe".into())
+        );
+        // ... except empty or flag-like requests, which would derail uv.
+        assert_eq!(resolve_version_request(""), None);
+        assert_eq!(resolve_version_request("-64"), None);
+        assert_eq!(resolve_version_request("-p"), None);
     }
 
     fn sb(version: Option<&str>, options: &[&str]) -> Shebang {
@@ -290,6 +403,24 @@ mod tests {
             parse_shebang("#!/usr/bin/python3.7-32"),
             Some(sb(Some("3.7"), &[]))
         );
+        // Double quotes group and are stripped, for paths and options alike.
+        assert_eq!(
+            parse_shebang(r#"#!"C:\Program Files\Python312\python.exe" -u"#),
+            Some(sb(None, &["-u"]))
+        );
+        assert_eq!(
+            parse_shebang(r#"#!/usr/bin/python3 -W "ignore:deprecated call""#),
+            Some(sb(Some("3"), &["-W", "ignore:deprecated call"]))
+        );
+        // The basename matches in any case, like Windows filesystems.
+        assert_eq!(
+            parse_shebang(r"#!C:\Python312\PYTHON.EXE -u"),
+            Some(sb(None, &["-u"]))
+        );
+        assert_eq!(
+            parse_shebang("#!/usr/bin/env Python3"),
+            Some(sb(Some("3"), &[]))
+        );
     }
 
     #[test]
@@ -313,6 +444,7 @@ mod tests {
     fn non_python_shebangs() {
         assert_eq!(parse_shebang("#!/bin/sh"), None);
         assert_eq!(parse_shebang("#!/usr/bin/pythonw3.12"), None);
+        assert_eq!(parse_shebang("#!/usr/bin/PYTHONW3.12"), None);
         assert_eq!(parse_shebang("#!/usr/bin/env"), None);
         assert_eq!(parse_shebang("#!"), None);
         assert_eq!(parse_shebang("print('hi')"), None);
