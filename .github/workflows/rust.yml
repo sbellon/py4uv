@@ -8,6 +8,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  RUSTDOCFLAGS: -D warnings
 
 jobs:
   build:
@@ -27,4 +28,4 @@ jobs:
     - name: Tests
       run: cargo test --all-features --verbose
     - name: Documentation
-      run: cargo doc --no-deps --all-features --verbose -- -D warnings
+      run: cargo doc --no-deps --all-features --verbose
