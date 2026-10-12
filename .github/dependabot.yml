@@ -1,0 +1,12 @@
+version: 2
+updates:
+  # `/` covers the workflows in `.github/workflows`.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    # One pull request for all pending updates instead of one per action.
+    groups:
+      actions:
+        patterns:
+          - "*"
