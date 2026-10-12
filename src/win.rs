@@ -245,9 +245,9 @@ mod tests {
         assert_eq!(String::from_utf16(args.tail()).unwrap(), "script.py");
         assert_eq!(args.first_as_str(), "script.py");
         args.skip_first();
-        assert!(args.tail().is_empty());
+        assert_eq!(args.tail(), []);
         args.skip_first(); // no-op on an empty tail
-        assert!(args.tail().is_empty());
+        assert_eq!(args.tail(), []);
         assert_eq!(args.first_as_str(), "");
     }
 }
