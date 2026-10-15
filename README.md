@@ -93,13 +93,19 @@ git config core.hooksPath .githooks
 
 ## Build & install
 
-Anywhere with a Rust toolchain:
+Anywhere with a Rust toolchain, straight from GitHub:
 
 ```
-cargo install --path .
+cargo install --locked --git https://github.com/sbellon/py4uv
 ```
 
-installs `py` into `~/.cargo/bin`. Or build and copy manually, e.g. on Windows:
+or from a local checkout:
+
+```
+cargo install --locked --path .
+```
+
+Either installs `py` into `~/.cargo/bin`. Or build and copy manually, e.g. on Windows:
 
 ```
 cargo build --release
