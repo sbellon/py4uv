@@ -4,6 +4,12 @@ version = "0.1.0"
 edition = "2024"
 description = "Portable `py` launcher shim, backed by uv (no Python installation needed)"
 license = "MIT"
+repository = "https://github.com/sbellon/py4uv"
+readme = "README.md"
+keywords = ["python", "py", "launcher", "uv", "windows"]
+categories = ["command-line-utilities", "development-tools"]
+# What goes into the crates.io package (Cargo.toml and Cargo.lock always do).
+include = ["/src", "/tests", "/README.md", "/CHANGELOG.md", "/LICENSE"]
 
 [[bin]]
 name = "py"
@@ -13,6 +19,15 @@ path = "src/main.rs"
 
 [lints.clippy]
 pedantic = { level = "warn", priority = -1 }
+
+# `cargo binstall py4uv` downloads the archives of a GitHub release.
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ version }-{ target }{ archive-suffix }"
+bin-dir = "{ name }-{ version }-{ target }/{ bin }{ binary-ext }"
+pkg-fmt = "tgz"
+
+[package.metadata.binstall.overrides.x86_64-pc-windows-msvc]
+pkg-fmt = "zip"
 
 [profile.release]
 strip = true

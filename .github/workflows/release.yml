@@ -1,0 +1,180 @@
+name: Release
+
+# Publishing a GitHub release (tag `v<version>`) builds the binaries once and
+# publishes them everywhere: as archives on the release, as wheels on PyPI
+# (`py4uv`) and as the crate on crates.io (`py4uv`). Every publish
+# step skips what is already there, so a failed run can simply be re-run.
+# Starting the workflow by hand only builds, to try the release build.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+    - uses: actions/checkout@v7
+    - name: Read the version from Cargo.toml
+      id: version
+      run: |
+        version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
+        echo "version=$version" >> "$GITHUB_OUTPUT"
+    - name: Check that the release tag matches it
+      if: github.event_name == 'release'
+      env:
+        TAG: ${{ github.event.release.tag_name }}
+        VERSION: ${{ steps.version.outputs.version }}
+      run: |
+        if [ "$TAG" != "v$VERSION" ]; then
+          echo "::error::release tag $TAG does not match version $VERSION in Cargo.toml (expected v$VERSION)"
+          exit 1
+        fi
+
+  build:
+    needs: [version]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        # A static musl binary runs on every Linux, so its wheel is tagged
+        # for glibc (manylinux) and musl (musllinux) systems alike.
+        - os: ubuntu-latest
+          target: x86_64-unknown-linux-musl
+          maturin-args: --compatibility manylinux_2_17 musllinux_1_2
+        - os: windows-latest
+          target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.os }}
+    env:
+      ARCHIVE: py4uv-${{ needs.version.outputs.version }}-${{ matrix.target }}
+    steps:
+    - uses: actions/checkout@v7
+    - name: Install uv
+      uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      with:
+        enable-cache: false
+    - name: Add the Rust target
+      run: rustup target add ${{ matrix.target }}
+    - name: Build the wheel (and with it the binary)
+      run: uvx --from "maturin>=1.9,<2" maturin build --release --locked --target ${{ matrix.target }} --out dist ${{ matrix.maturin-args }}
+    - name: Pack the binary (Linux)
+      if: runner.os == 'Linux'
+      run: |
+        mkdir "$ARCHIVE"
+        cp target/${{ matrix.target }}/release/py README.md CHANGELOG.md LICENSE "$ARCHIVE/"
+        tar czf "$ARCHIVE.tar.gz" "$ARCHIVE"
+    - name: Pack the binary (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        New-Item -ItemType Directory $env:ARCHIVE
+        Copy-Item target/${{ matrix.target }}/release/py.exe, README.md, CHANGELOG.md, LICENSE $env:ARCHIVE
+        Compress-Archive $env:ARCHIVE "$env:ARCHIVE.zip"
+    - name: Upload the wheel
+      uses: actions/upload-artifact@v7
+      with:
+        name: wheel-${{ matrix.target }}
+        path: dist/
+    - name: Upload the archive
+      uses: actions/upload-artifact@v7
+      with:
+        name: archive-${{ matrix.target }}
+        path: ${{ env.ARCHIVE }}.*
+
+  sdist:
+    needs: [version]
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v7
+    - name: Install uv
+      uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      with:
+        enable-cache: false
+    - name: Build the source distribution
+      run: uvx --from "maturin>=1.9,<2" maturin sdist --out dist
+    - name: Upload the source distribution
+      uses: actions/upload-artifact@v7
+      with:
+        name: sdist
+        path: dist/
+
+  github-release:
+    if: github.event_name == 'release'
+    needs: [build, sdist]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+    - name: Retrieve the archives
+      uses: actions/download-artifact@v8
+      with:
+        pattern: archive-*
+        merge-multiple: true
+        path: archives/
+    - name: Attach them to the release
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: gh release upload "${{ github.event.release.tag_name }}" archives/* --clobber --repo "${{ github.repository }}"
+
+  pypi-publish:
+    if: github.event_name == 'release'
+    needs: [build, sdist]
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    environment:
+      name: pypi
+      url: https://pypi.org/project/py4uv
+    steps:
+    - name: Retrieve the wheels
+      uses: actions/download-artifact@v8
+      with:
+        pattern: wheel-*
+        merge-multiple: true
+        path: dist/
+    - name: Retrieve the source distribution
+      uses: actions/download-artifact@v8
+      with:
+        name: sdist
+        path: dist/
+    - name: Publish them to PyPI
+      uses: pypa/gh-action-pypi-publish@release/v1
+      with:
+        packages-dir: dist/
+        skip-existing: true
+
+  crates-io-publish:
+    if: github.event_name == 'release'
+    needs: [version, build, sdist]
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    environment:
+      name: crates-io
+      url: https://crates.io/crates/py4uv
+    steps:
+    - uses: actions/checkout@v7
+    - name: Check whether this version is on crates.io already
+      id: published
+      run: |
+        status=$(curl -s -o /dev/null -w '%{http_code}' \
+          -A "py4uv release workflow (https://github.com/${{ github.repository }})" \
+          "https://crates.io/api/v1/crates/py4uv/${{ needs.version.outputs.version }}")
+        echo "published=$([ "$status" = 200 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+    - name: Authenticate with crates.io
+      if: steps.published.outputs.published == 'false'
+      id: auth
+      uses: rust-lang/crates-io-auth-action@v1
+    - name: Publish to crates.io
+      if: steps.published.outputs.published == 'false'
+      env:
+        CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+      run: cargo publish --locked

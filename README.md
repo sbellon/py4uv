@@ -93,7 +93,19 @@ A pre-commit hook runs all of it automatically; enable it once per clone with:
 git config core.hooksPath .githooks
 ```
 
-## Build & install
+## Install
+
+- **Prebuilt binary**: download the archive for GNU/Linux (x86_64, static, so
+  it runs on any distribution) or Windows (x86_64) from the
+  [releases](https://github.com/sbellon/py4uv/releases) and put `py`
+  (`py.exe`) on your `PATH`.
+- **With uv** (PyPI package `py4uv`, which contains the same binary):
+  `uv tool install py4uv` puts `py` next to uv's other tools; without
+  installing: `uvx --from py4uv py -3.12 …`.
+- **With cargo**: `cargo binstall py4uv` (downloads the prebuilt binary) or
+  `cargo install --locked py4uv` (builds it).
+
+## Build
 
 Anywhere with a Rust toolchain, straight from GitHub:
 
@@ -116,4 +128,4 @@ copy target\release\py.exe %USERPROFILE%\.local\bin\py.exe
 
 ## License
 
-Licensed under the [MIT license](LICENSE).
+Licensed under the [MIT license](https://github.com/sbellon/py4uv/blob/main/LICENSE).
