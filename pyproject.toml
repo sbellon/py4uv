@@ -1,0 +1,30 @@
+# The PyPI package: maturin builds the Rust binary and ships it in a wheel
+# (like ruff or uv do), so `uv tool install py4uv` needs no Rust.
+[build-system]
+requires = ["maturin>=1.9,<2"]
+build-backend = "maturin"
+
+[project]
+name = "py4uv"
+description = "Portable `py` launcher shim, backed by uv (no Python installation needed)"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+keywords = ["python", "py", "launcher", "uv", "windows"]
+classifiers = [
+    "Environment :: Console",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Rust",
+    "Topic :: Software Development :: Interpreters",
+    "Topic :: Utilities",
+]
+# Taken from Cargo.toml, which bump-my-version updates.
+dynamic = ["version"]
+
+[project.urls]
+Repository = "https://github.com/sbellon/py4uv"
+Changelog = "https://github.com/sbellon/py4uv/blob/main/CHANGELOG.md"
+
+[tool.maturin]
+bindings = "bin"

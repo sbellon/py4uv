@@ -30,6 +30,24 @@ Windows (and `src/win.rs` on Unix). Lint the other side with
 `cargo clippy --all-targets --all-features --target x86_64-unknown-linux-musl -- -D warnings`
 (cargo check/clippy don't link, so no cross toolchain is needed).
 
+## Releases
+
+Add user-visible changes under `## Unreleased` in `CHANGELOG.md` as part of
+the change itself. A release is cut on a branch (`main` takes no direct
+pushes) with `uvx bump-my-version bump patch|minor|major` (config in
+`.bumpversion.toml`): it rewrites the version in `Cargo.toml` (the PyPI
+version is taken from there), turns the `## Unreleased` heading into the new
+version, updates `Cargo.lock` and commits. After merging that, the GitHub
+release is created on `main` with the version's changelog section as notes:
+
+    awk -v v=0.1.1 -f .github/release-notes.awk CHANGELOG.md > target/release-notes.md &&
+        gh release create v0.1.1 --title 0.1.1 --notes-file target/release-notes.md
+
+Publishing it runs `.github/workflows/release.yml`, which builds the binaries
+once and publishes them as release archives, PyPI wheels (`py4uv`, via
+maturin, `pyproject.toml`) and the crates.io crate (`py4uv`), all with
+trusted publishing. Running the workflow by hand only builds.
+
 ## Architecture
 
 - `src/main.rs` — shared flow plus version-flag and shebang parsing as pure,
