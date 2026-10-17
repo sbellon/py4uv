@@ -2,7 +2,9 @@
 
 A portable `py` launcher shim, backed by [uv](https://docs.astral.sh/uv/) — no
 Python installation needed. `py -3.10 …`, `py -3.12 …` etc. work transparently
-on Windows, GNU/Linux, and macOS; uv downloads missing interpreters on demand.
+on Windows and GNU/Linux; uv downloads missing interpreters on demand. (The
+Unix code is not specific to Linux, so other Unix systems such as macOS may
+work too, but they are not tested.)
 
 ## What it does
 
