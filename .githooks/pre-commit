@@ -26,6 +26,49 @@ trap 'cleanup; trap - EXIT; exit 129' HUP
 trap 'cleanup; trap - EXIT; exit 130' INT
 trap 'cleanup; trap - EXIT; exit 143' TERM
 
+# SPDX headers: staged Rust files without one get it, and the committer's
+# copyright year is brought up to date in every staged file that has one
+# (2026 -> 2026-2027, 2024-2026 -> 2024-2027). Fixes go to the working tree
+# and the commit stops, so they can be reviewed and staged.
+year=$(date +%Y)
+name=$(git config user.name)
+fixed=
+staged=$(git diff --cached --name-only --diff-filter=AMR)
+while IFS= read -r f; do
+    [ -n "$f" ] && [ -f "$f" ] || continue
+    head=$(git show ":$f" | head -n 10)
+    case "$f" in
+    *.rs)
+        if ! printf '%s\n' "$head" | grep -q 'SPDX-License-Identifier'; then
+            {
+                printf '// SPDX-FileCopyrightText: %s %s\n' "$year" "$name"
+                printf '//\n// SPDX-License-Identifier: MIT\n\n'
+                cat "$f"
+            } > "$stage/header" && cat "$stage/header" > "$f"
+            fixed="$fixed $f"
+            continue
+        fi
+        ;;
+    esac
+    years=$(printf '%s\n' "$head" |
+        sed -n "s/^.* SPDX-FileCopyrightText: \([0-9-]*\) $name\$/\1/p" | head -n 1)
+    case "$years" in
+    "" | "$year" | *-"$year") ;;
+    *)
+        sed "s/\( SPDX-FileCopyrightText: \)$years $name\$/\1${years%%-*}-$year $name/" \
+            "$f" > "$stage/header" && cat "$stage/header" > "$f"
+        fixed="$fixed $f"
+        ;;
+    esac
+done <<EOF
+$staged
+EOF
+if [ -n "$fixed" ]; then
+    echo "pre-commit: added or updated SPDX headers in:$fixed" >&2
+    echo "pre-commit: review, \`git add\` them and commit again" >&2
+    exit 1
+fi
+
 git checkout-index --prefix="$stage/" -a
 # Sync the fresh checkout into the snapshot, keeping unchanged files'
 # mtimes so cargo rebuilds stay incremental; drop files that left the index.
