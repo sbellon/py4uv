@@ -1,7 +1,10 @@
 name: Rust
 
+# Branches are checked through their pull request; pushes to other branches
+# would only start the same jobs a second time.
 on:
   push:
+    branches: ["main"]
     paths-ignore: [".github/**"]
   pull_request:
     branches: ["main"]

@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Stefan Bellon
+//
+// SPDX-License-Identifier: MIT
+
 // py4uv - "py" launcher shim backed by uv (no Python installation needed).
 //
 // Translates:

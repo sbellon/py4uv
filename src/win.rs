@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Stefan Bellon
+//
+// SPDX-License-Identifier: MIT
+
 //! Windows: take the argument tail from the raw command line (`GetCommandLineW`)
 //! and pass it to uv verbatim (`raw_arg`), so no re-quoting can mangle it.
 //!

@@ -19,6 +19,12 @@ Cargo.toml), test, doc with `RUSTDOCFLAGS="-D warnings"` — plus a cross-target
 clippy pass. Run the same commands yourself before committing; they must stay
 clean.
 
+Every Rust file starts with an SPDX header (`// SPDX-FileCopyrightText:
+<years> <name>`, `//`, `// SPDX-License-Identifier: MIT`), checked by
+`tests/spdx.rs`. The hook adds it to new `.rs` files and extends the
+committer's year range (`2026` → `2026-2027`) in changed files, then stops
+so the change can be staged.
+
 Cross-target matters: `src/unix.rs` is invisible to every native check on
 Windows (and `src/win.rs` on Unix). Lint the other side with
 `cargo clippy --all-targets --all-features --target x86_64-unknown-linux-musl -- -D warnings`

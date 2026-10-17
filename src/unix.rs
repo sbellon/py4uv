@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Stefan Bellon
+//
+// SPDX-License-Identifier: MIT
+
 //! Unix: argv is already an array, so pass it through untouched and exec uv
 //! in place of the shim — signals, terminal control, and exit codes then need
 //! no forwarding at all.
