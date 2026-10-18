@@ -17,8 +17,9 @@ Every commit is gated by `.githooks/pre-commit` (enable once per clone with
 fmt --check, check, clippy `-D warnings` (pedantic group is enabled in
 Cargo.toml), test, doc with `RUSTDOCFLAGS="-D warnings"` — plus a cross-target
 clippy pass. Run the same commands yourself before committing; they must stay
-clean. CI runs check, clippy, build and test on both Ubuntu and Windows, and
-checks with the oldest Rust that `rust-version` in `Cargo.toml` promises.
+clean. CI runs clippy and test (which cover check and build) on both Ubuntu and
+Windows, fmt and doc on Ubuntu, and checks with the oldest Rust that
+`rust-version` in `Cargo.toml` promises.
 
 Every Rust file starts with an SPDX header (`// SPDX-FileCopyrightText:
 <years> <name>`, `//`, `// SPDX-License-Identifier: MIT`), checked by
@@ -28,8 +29,9 @@ so the change can be staged.
 
 Cross-target matters: `src/unix.rs` is invisible to every native check on
 Windows (and `src/win.rs` on Unix). Lint the other side with
-`cargo clippy --all-targets --all-features --target x86_64-unknown-linux-musl -- -D warnings`
-(cargo check/clippy don't link, so no cross toolchain is needed).
+`cargo clippy --all-targets --all-features --target x86_64-pc-windows-msvc -- -D warnings`
+(or `x86_64-unknown-linux-musl` from Windows; cargo check/clippy don't
+link, so no cross toolchain is needed).
 
 ## Releases
 
