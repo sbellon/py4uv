@@ -1,12 +1,7 @@
 # Release version bumps: `uvx bump-my-version bump patch|minor|major`.
 [tool.bumpversion]
 current_version = "0.1.0"
-parse = "(?P<major>\\d+)\\.(?P<minor>\\d+)\\.(?P<patch>\\d+)"
-serialize = ["{major}.{minor}.{patch}"]
-tag = false
-allow_dirty = false
 commit = true
-message = "Bump version: {current_version} → {new_version}"
 pre_commit_hooks = ["cargo update --workspace", "git add Cargo.lock"]
 
 # Only the package's own version, at the start of a line, not a dependency
