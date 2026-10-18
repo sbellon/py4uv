@@ -5,8 +5,36 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # New releases of the actions (which run with the workflows' permissions)
+    # are only proposed after a week, when a hijacked one has usually been
+    # noticed and pulled. The project's own dependencies have no cooldown, so
+    # their fixes arrive right away.
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: deps
+    assignees:
+      - sbellon
     # One pull request for all pending updates instead of one per action.
     groups:
       actions:
+        patterns:
+          - "*"
+
+  # Updates `Cargo.lock` (and `Cargo.toml` only where a new release falls
+  # outside the declared range); with `all` also the transitive dependencies,
+  # like `cargo update`.
+  - package-ecosystem: cargo
+    directory: /
+    allow:
+      - dependency-type: all
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: deps
+    assignees:
+      - sbellon
+    groups:
+      rust:
         patterns:
           - "*"

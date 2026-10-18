@@ -8,6 +8,7 @@ build-backend = "maturin"
 name = "py4uv"
 description = "Portable `py` launcher shim, backed by uv (no Python installation needed)"
 readme = "README.md"
+authors = [{ name = "Stefan Bellon" }]
 license = "MIT"
 license-files = ["LICENSE"]
 keywords = ["python", "py", "launcher", "uv", "windows"]
