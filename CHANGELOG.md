@@ -4,7 +4,7 @@
 
 ### Changed
 - declares Rust 1.86 as its minimum supported version (`rust-version`),
-  like term2gif, checked in CI
+  checked in CI
 
 ## 0.1.0 (2026-10-17)
 
