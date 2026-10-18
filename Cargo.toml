@@ -2,7 +2,7 @@
 name = "py4uv"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.86"
 description = "Portable `py` launcher shim, backed by uv (no Python installation needed)"
 license = "MIT"
 repository = "https://github.com/sbellon/py4uv"
