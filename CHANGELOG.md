@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.1 (2026-10-24)
+
 ### Changed
 - declares Rust 1.86 as its minimum supported version (`rust-version`),
   checked in CI
