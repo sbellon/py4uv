@@ -26,6 +26,12 @@ updates:
       actions:
         patterns:
           - "*"
+      # Security updates come in a group of their own, so that its name in
+      # the title tells them apart from version updates.
+      security:
+        applies-to: security-updates
+        patterns:
+          - "*"
 
   # Updates `Cargo.lock` (and `Cargo.toml` only where a new release falls
   # outside the declared range); with `all` also the transitive dependencies,
@@ -45,5 +51,11 @@ updates:
       - sbellon
     groups:
       rust:
+        patterns:
+          - "*"
+      # Security updates come in a group of their own, so that its name in
+      # the title tells them apart from version updates.
+      security:
+        applies-to: security-updates
         patterns:
           - "*"
