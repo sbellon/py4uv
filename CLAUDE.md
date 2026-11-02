@@ -17,9 +17,7 @@ Every commit is gated by `.githooks/pre-commit` (enable once per clone with
 fmt --check, check, clippy `-D warnings` (pedantic group is enabled in
 Cargo.toml), test, doc with `RUSTDOCFLAGS="-D warnings"` — plus a cross-target
 clippy pass. Run the same commands yourself before committing; they must stay
-clean. CI runs clippy and test (which cover check and build) on both Ubuntu and
-Windows, fmt and doc on Ubuntu, and checks with the oldest Rust that
-`rust-version` in `Cargo.toml` promises.
+clean.
 
 Every Rust file starts with an SPDX header (`// SPDX-FileCopyrightText:
 <years> <name>`, `//`, `// SPDX-License-Identifier: MIT`), checked by
